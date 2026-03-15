@@ -5,11 +5,29 @@ import passport from 'passport';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import createMemoryStore from 'memorystore';
+import connectPgSimple from 'connect-pg-simple';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { PrismaClient } from '@prisma/client';
 import { createServer as createViteServer } from 'vite';
 import yahooFinance from 'yahoo-finance2';
 import cron from 'node-cron';
+
+declare global {
+  namespace Express {
+    interface User {
+      id: string;
+      email: string;
+      name?: string | null;
+      googleId?: string | null;
+      avatarUrl?: string | null;
+      principal: number;
+      shortTarget: number;
+      midTarget: number;
+      longTarget: number;
+    }
+  }
+}
+
 
 const prisma = new PrismaClient();
 const app = express();
@@ -18,6 +36,12 @@ const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   throw new Error('SESSION_SECRET is required.');
+}
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required.');
 }
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -41,12 +65,25 @@ if (cookieSameSite === 'none' && !isProd) {
 }
 
 const MemoryStore = createMemoryStore(session);
-const sessionStore = new MemoryStore({
-  checkPeriod: 24 * 60 * 60 * 1000,
-});
+const PgStore = connectPgSimple(session);
+const sessionStore = isProd
+  ? (() => {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL is required in production for session storage.');
+    }
+    return new PgStore({
+      conString: databaseUrl,
+      tableName: 'user_sessions',
+      createTableIfMissing: true,
+    });
+  })()
+  : new MemoryStore({
+    checkPeriod: 24 * 60 * 60 * 1000,
+  });
 
 // Zeabur / ?嗡??脩垢撟喳?賣???隞??嚗??????甇?Ⅱ?? HTTPS ??secure cookie
-app.set('trust proxy', 1);
+if (isProd) app.set('trust proxy', 1);
 
 // ??? Session & Auth Middleware ????????????????????????????????????????????????
 
@@ -54,7 +91,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      "script-src": ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com'],
+      "script-src": ["'self'", 'https://cdn.tailwindcss.com'],
       "style-src": ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       "font-src": ["'self'", 'https://fonts.gstatic.com', 'data:'],
       "img-src": ["'self'", 'https:', 'data:'],
@@ -88,7 +125,7 @@ app.use(session({
     httpOnly: true,
     secure: isProd,
     sameSite: cookieSameSite as 'lax' | 'strict' | 'none',
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   },
 }));
 
@@ -107,8 +144,8 @@ app.use(express.json());
 // ??? Passport Google Strategy ?????????????????????????????????????????????????
 
 passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID!,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  clientID: GOOGLE_CLIENT_ID,
+  clientSecret: GOOGLE_CLIENT_SECRET,
   callbackURL: process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback',
 }, async (_accessToken, _refreshToken, profile, done) => {
   try {
@@ -236,7 +273,7 @@ app.get('/api/me', async (req, res) => {
   if (!req.isAuthenticated() || !req.user) {
     return res.json({ user: null });
   }
-  const u = req.user as any;
+  const u = req.user;
   // 敺?DB ?????啗???deserializeUser 銝?摰?堆?
   const fresh = await prisma.user.findUnique({ where: { id: u.id } });
   if (!fresh) return res.json({ user: null });
@@ -258,7 +295,7 @@ app.get('/api/me', async (req, res) => {
 
 app.get('/api/holdings', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdings = await prisma.holding.findMany({ where: { userId } });
     res.json(holdings);
   } catch {
@@ -271,7 +308,7 @@ app.get('/api/holdings', requireAuth, async (req, res) => {
  */
 app.post('/api/holdings', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const ticker = parseTicker(req.body?.ticker);
     const market = typeof req.body?.market === 'string' ? req.body.market : '';
     const portfolioType = typeof req.body?.portfolioType === 'string' ? req.body.portfolioType : '';
@@ -348,7 +385,7 @@ app.post('/api/holdings', requireAuth, async (req, res) => {
 // ??靽格???(撠??瘙?4)
 app.patch('/api/holdings/:id', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdingId = String(req.params.id);
     const amount = req.body?.amount === undefined ? undefined : parsePositiveNumber(req.body.amount);
     const avgPrice = req.body?.avgPrice === undefined ? undefined : parsePositiveNumber(req.body.avgPrice);
@@ -380,7 +417,7 @@ app.patch('/api/holdings/:id', requireAuth, async (req, res) => {
 
 app.delete('/api/holdings/:id', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdingId = String(req.params.id);
     const result = await prisma.holding.deleteMany({ where: { id: holdingId, userId } });
     if (result.count === 0) {
@@ -428,7 +465,7 @@ app.patch('/api/me/principal', requireAuth, async (req, res) => {
   try {
     const principal = parseNonNegativeNumber(req.body?.principal);
     if (principal === null) return res.status(400).json({ error: 'Invalid principal' });
-    const user = req.user as any;
+    const user = req.user;
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: { principal }
@@ -442,7 +479,7 @@ app.patch('/api/me/principal', requireAuth, async (req, res) => {
 // ?脣??凋葉?瑟????格???
 app.patch('/api/me/targets', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const { shortTarget, midTarget, longTarget } = req.body;
     const data: Record<string, number> = {};
     const parsedShortTarget = shortTarget === undefined ? undefined : parseNonNegativeNumber(shortTarget);
@@ -473,6 +510,7 @@ app.patch('/api/me/targets', requireAuth, async (req, res) => {
 async function fetchTaiwanOfficialPrices() {
   console.log('Fetching official TWSE/TPEx prices...');
   const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
   try {
     // 1. 銝? (TWSE)
     const twseRes = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL');
@@ -480,16 +518,32 @@ async function fetchTaiwanOfficialPrices() {
     if (Array.isArray(twseData)) {
       for (const item of twseData) {
         const ticker = item.Code;
-        const currentPrice = parseFloat(item.ClosingPrice) || 0;
+        const open = parseFloat(item.OpeningPrice) || 0;
+        const high = parseFloat(item.HighestPrice) || 0;
+        const low = parseFloat(item.LowestPrice) || 0;
+        const close = parseFloat(item.ClosingPrice) || 0;
         const change = parseFloat(item.Change) || 0;
-        const prevClose = currentPrice - change;
+        const volume = parseFloat(item.TradeVolume) || 0;
+        const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
         await (prisma.stockCache as any).upsert({
           where: { ticker },
-          update: { name: item.Name, currentPrice, change24h, lastUpdated: now },
-          create: { ticker, name: item.Name, market: 'TW', currentPrice, change24h, lastUpdated: now }
+          update: { name: item.Name, currentPrice: close, change24h, lastUpdated: now },
+          create: { ticker, name: item.Name, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
         });
+
+        // 寫入當日 OHLC 到 StockDailyPrice（民國日期轉西元）
+        if (close > 0) {
+          const dateStr = item.Date
+            ? `${parseInt(item.Date.substring(0, 3)) + 1911}-${item.Date.substring(3, 5)}-${item.Date.substring(5, 7)}`
+            : todayStr;
+          await (prisma.stockDailyPrice as any).upsert({
+            where: { ticker_date: { ticker, date: dateStr } },
+            update: { open, high, low, close, volume },
+            create: { ticker, date: dateStr, open, high, low, close, volume }
+          });
+        }
       }
     }
 
@@ -499,16 +553,28 @@ async function fetchTaiwanOfficialPrices() {
     if (Array.isArray(tpexData)) {
       for (const item of tpexData) {
         const ticker = item.SecuritiesCompanyCode;
-        const currentPrice = parseFloat(item.Close) || 0;
+        const open = parseFloat(item.Open) || 0;
+        const high = parseFloat(item.High) || 0;
+        const low = parseFloat(item.Low) || 0;
+        const close = parseFloat(item.Close) || 0;
         const change = parseFloat(item.Change) || 0;
-        const prevClose = currentPrice - change;
+        const volume = parseFloat(item.TradingShares) || 0;
+        const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
         await (prisma.stockCache as any).upsert({
           where: { ticker },
-          update: { name: item.CompanyName, currentPrice, change24h, lastUpdated: now },
-          create: { ticker, name: item.CompanyName, market: 'TW', currentPrice, change24h, lastUpdated: now }
+          update: { name: item.CompanyName, currentPrice: close, change24h, lastUpdated: now },
+          create: { ticker, name: item.CompanyName, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
         });
+
+        if (close > 0) {
+          await (prisma.stockDailyPrice as any).upsert({
+            where: { ticker_date: { ticker, date: todayStr } },
+            update: { open, high, low, close, volume },
+            create: { ticker, date: todayStr, open, high, low, close, volume }
+          });
+        }
       }
     }
     console.log('Taiwan official prices updated successfully.');
@@ -523,6 +589,7 @@ async function fetchTaiwanOfficialPrices() {
 
 async function fetchPriceDirectly(ticker: string, market: string, fetchName: boolean = false) {
   const now = new Date();
+  const todayDateStr = now.toISOString().split('T')[0];
   
   // 1. ??鞎典馳嚗雁?蝙??Binance API (??Key 銝扔摨衣帘摰?
   if (market === 'CRYPTO') {
@@ -532,8 +599,15 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       const data: any = await response.json();
       
       if (data && data.lastPrice) {
+        const price = parseFloat(data.lastPrice);
+        // Binance 24hr 提供 openPrice/highPrice/lowPrice/lastPrice/volume
+        await (prisma.stockDailyPrice as any).upsert({
+          where: { ticker_date: { ticker, date: todayDateStr } },
+          update: { open: parseFloat(data.openPrice) || price, high: parseFloat(data.highPrice) || price, low: parseFloat(data.lowPrice) || price, close: price, volume: parseFloat(data.volume) || 0 },
+          create: { ticker, date: todayDateStr, open: parseFloat(data.openPrice) || price, high: parseFloat(data.highPrice) || price, low: parseFloat(data.lowPrice) || price, close: price, volume: parseFloat(data.volume) || 0 }
+        });
         return {
-          currentPrice: parseFloat(data.lastPrice),
+          currentPrice: price,
           change24h: parseFloat(data.priceChangePercent),
           market: 'CRYPTO',
           name: fetchName ? ticker : undefined
@@ -572,7 +646,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       }
 
       // ?澆 Finnhub Quote API
-      const quoteRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${finnhubKey}`);
+      const quoteRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
       if (!quoteRes.ok) throw new Error(`Quote error! status: ${quoteRes.status}`);
       const quoteData: any = await quoteRes.json();
 
@@ -580,7 +654,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       // ?芣??冽?蝣箄?瘙????Profile (蝭??API Call)
       if (fetchName && quoteData.c !== 0) {
         try {
-          const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${finnhubKey}`);
+          const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
           if (profileRes.ok) {
             const profileData: any = await profileRes.json();
             name = profileData.name;
@@ -590,9 +664,17 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
 
       // Finnhub ??澆?閫?? (c = current price, dp = percent change)
       if (quoteData && quoteData.c !== 0) {
+        // 寫入當日 OHLC（Finnhub quote 提供 o/h/l/c）
+        if (quoteData.o && quoteData.h && quoteData.l) {
+          await (prisma.stockDailyPrice as any).upsert({
+            where: { ticker_date: { ticker, date: todayDateStr } },
+            update: { open: quoteData.o, high: quoteData.h, low: quoteData.l, close: quoteData.c },
+            create: { ticker, date: todayDateStr, open: quoteData.o, high: quoteData.h, low: quoteData.l, close: quoteData.c, volume: 0 }
+          });
+        }
         return {
           currentPrice: quoteData.c,
-          change24h: quoteData.dp || 0, 
+          change24h: quoteData.dp || 0,
           market: 'US',
           name: name
         };
@@ -623,7 +705,7 @@ app.get('/api/prices', requireAuth, async (req, res) => {
 
   try {
     // read user scope for this request
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdings = await prisma.holding.findMany({
       where: { userId, ticker: { in: tickerList } }
     });
@@ -635,10 +717,12 @@ app.get('/api/prices', requireAuth, async (req, res) => {
       
       let cache = await (prisma.stockCache as any).findUnique({ where: { ticker: cleanTicker } });
       const now = new Date();
+      const todayDate = now.toISOString().split('T')[0];
 
-      // refresh cache after 60s or when name is missing
+      // 優先使用資料庫快取；僅在無快取、非今日資料、或缺公司名時才呼叫 API
       const needsName = !cache || !cache.name;
-      if (!cache || (now.getTime() - cache.lastUpdated.getTime() > 60 * 1000) || needsName) {
+      const isStale = !cache || cache.lastUpdated.toISOString().split('T')[0] < todayDate;
+      if (isStale || needsName) {
         const newData = await fetchPriceDirectly(ticker, market, needsName);
         if (newData) {
           cache = await (prisma.stockCache as any).upsert({
@@ -678,7 +762,7 @@ app.get('/api/prices', requireAuth, async (req, res) => {
 
 app.post('/api/prices/refresh-tw', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     await fetchTaiwanOfficialPrices();
     const holdings = await prisma.holding.findMany({ where: { userId, market: 'TW' } });
     for (const h of holdings) {
@@ -699,7 +783,7 @@ app.post('/api/prices/refresh-tw', requireAuth, async (req, res) => {
 
 app.post('/api/prices/refresh-global', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdings = await prisma.holding.findMany({ 
       where: { userId, market: { in: ['US', 'CRYPTO'] } } 
     });
@@ -737,7 +821,7 @@ app.post('/api/prices/refresh-global', requireAuth, async (req, res) => {
  */
 app.get('/api/pnl-history', requireAuth, async (req, res) => {
   try {
-    const userId = (req.user as any).id;
+    const userId = req.user.id;
     const holdings = await prisma.holding.findMany({ where: { userId } });
 
     if (holdings.length === 0) {
@@ -767,12 +851,28 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
     // clamp history range to most recent 60 days
     const start = new Date(Math.max(earliestDate.getTime(), today.getTime() - 60 * 24 * 3600 * 1000));
 
-    // Fetch price history per ticker
+    // Fetch price history per ticker — 優先從 StockDailyPrice DB 讀取
     const historyByTicker: Record<string, Record<string, number>> = {};
+    const startStr = start.toISOString().split('T')[0];
+    const todayStr = today.toISOString().split('T')[0];
 
     for (const h of holdingsForPnl) {
       const ticker = h.ticker;
-      if (historyByTicker[ticker]) continue; // ??ticker ?芣?銝甈?
+      if (historyByTicker[ticker]) continue;
+      try {
+        // 1. DB first
+        const dbPrices = await (prisma.stockDailyPrice as any).findMany({
+          where: { ticker, date: { gte: startStr, lte: todayStr } },
+          orderBy: { date: 'asc' }
+        });
+        if (dbPrices.length >= 5) {
+          const prices: Record<string, number> = {};
+          for (const p of dbPrices) prices[p.date] = p.close;
+          historyByTicker[ticker] = prices;
+          continue;
+        }
+        // 2. API fallback
+      } catch (_dbErr) { /* fall through to API */ } // ??ticker ?芣?銝甈?
       try {
         const isTW = h.market === 'TW' || /^\d+$/.test(ticker);
         const queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
@@ -782,7 +882,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
           try {
             const from = Math.floor(start.getTime() / 1000);
             const to = Math.floor(today.getTime() / 1000);
-            const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}&token=${process.env.FINNHUB_API_KEY}`);
+            const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
             const data: any = await response.json();
             
             if (data && data.s === 'ok' && data.c) {
@@ -790,6 +890,11 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
               for (let i = 0; i < data.t.length; i++) {
                 const dateStr = new Date(data.t[i] * 1000).toISOString().split('T')[0];
                 prices[dateStr] = data.c[i];
+                await (prisma.stockDailyPrice as any).upsert({
+                  where: { ticker_date: { ticker, date: dateStr } },
+                  update: { open: data.o[i], high: data.h[i], low: data.l[i], close: data.c[i], volume: data.v ? data.v[i] : 0 },
+                  create: { ticker, date: dateStr, open: data.o[i], high: data.h[i], low: data.l[i], close: data.c[i], volume: data.v ? data.v[i] : 0 }
+                }).catch(() => {});
               }
               historyByTicker[ticker] = prices;
               continue; // ???脣??歲??Yahoo ?
@@ -811,6 +916,11 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
           if (q.date && q.close) {
             const dateStr = new Date(q.date).toISOString().split('T')[0];
             prices[dateStr] = q.close;
+            await (prisma.stockDailyPrice as any).upsert({
+              where: { ticker_date: { ticker, date: dateStr } },
+              update: { open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 },
+              create: { ticker, date: dateStr, open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 }
+            }).catch(() => {});
           }
         }
         // ?其嗾瘛?ticker嚗?撣?.TW嚗?
@@ -883,59 +993,102 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
   }
 });
 
-// /api/chart/:ticker — 返回真實日K線資料
+// /api/chart/:ticker — 返回日K線資料（優先從資料庫讀取，不足時從 API 補齊並存入 DB）
 app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
   try {
-    const { ticker } = req.params;
+    const ticker = parseTicker(req.params.ticker);
+    if (!ticker) return res.status(400).json({ error: 'Invalid ticker' });
     const market = (req.query.market as string) || '';
     const isTW = market === 'TW' || /^\d+$/.test(ticker);
-    const queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0];
     const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
 
-    // 先嘗試 Finnhub（美股）
+    // 1. 先從資料庫讀取已有的日K線
+    const dbPrices = await (prisma.stockDailyPrice as any).findMany({
+      where: { ticker, date: { gte: oneYearAgoStr, lte: todayStr } },
+      orderBy: { date: 'asc' }
+    });
+
+    // 如果資料庫已有足夠資料（超過 30 天），直接回傳
+    if (dbPrices.length >= 30) {
+      const candles = dbPrices.map((p: any) => ({
+        time: Math.floor(new Date(p.date + 'T00:00:00').getTime() / 1000),
+        open: p.open,
+        high: p.high,
+        low: p.low,
+        close: p.close,
+        volume: p.volume,
+      }));
+      return res.json(candles);
+    }
+
+    // 2. 資料不足，從 API 下載並存入 DB
+    let apiCandles: any[] = [];
+
+    // 美股：Finnhub
     if (!isTW && process.env.FINNHUB_API_KEY) {
       try {
         const from = Math.floor(oneYearAgo.getTime() / 1000);
         const to = Math.floor(today.getTime() / 1000);
-        const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}&token=${process.env.FINNHUB_API_KEY}`);
+        const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
         const data: any = await response.json();
         if (data && data.s === 'ok' && data.t) {
-          const candles = data.t.map((ts: number, i: number) => ({
+          apiCandles = data.t.map((ts: number, i: number) => ({
             time: ts,
             open: data.o[i],
             high: data.h[i],
             low: data.l[i],
             close: data.c[i],
+            volume: data.v ? data.v[i] : 0,
           }));
-          return res.json(candles);
         }
       } catch (e) {
         console.warn(`Finnhub chart fetch failed for ${ticker}, fallback to Yahoo`);
       }
     }
 
-    // Yahoo Finance 日K
-    const historical: any = await (yahooFinance as any).chart(queryTicker, {
-      period1: oneYearAgo.toISOString().split('T')[0],
-      period2: today.toISOString().split('T')[0],
-      interval: '1d',
-    });
+    // 台股或 Finnhub 失敗：Yahoo Finance
+    if (apiCandles.length === 0) {
+      try {
+        const queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
+        const historical: any = await (yahooFinance as any).chart(queryTicker, {
+          period1: oneYearAgoStr,
+          period2: todayStr,
+          interval: '1d',
+        });
+        const quotes = historical?.quotes || [];
+        apiCandles = quotes
+          .filter((q: any) => q.date && q.open != null && q.high != null && q.low != null && q.close != null)
+          .map((q: any) => ({
+            time: Math.floor(new Date(q.date).getTime() / 1000),
+            open: q.open,
+            high: q.high,
+            low: q.low,
+            close: q.close,
+            volume: q.volume || 0,
+          }));
+      } catch (e) {
+        console.warn(`Yahoo chart fetch failed for ${ticker}`);
+      }
+    }
 
-    const quotes = historical?.quotes || [];
-    const candles = quotes
-      .filter((q: any) => q.date && q.open != null && q.high != null && q.low != null && q.close != null)
-      .map((q: any) => ({
-        time: Math.floor(new Date(q.date).getTime() / 1000),
-        open: q.open,
-        high: q.high,
-        low: q.low,
-        close: q.close,
-      }));
+    // 3. 將 API 取得的日K線批量存入 StockDailyPrice（所有用戶共用）
+    for (const c of apiCandles) {
+      const dateStr = new Date(c.time * 1000).toISOString().split('T')[0];
+      try {
+        await (prisma.stockDailyPrice as any).upsert({
+          where: { ticker_date: { ticker, date: dateStr } },
+          update: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 },
+          create: { ticker, date: dateStr, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }
+        });
+      } catch (e) { /* skip duplicate */ }
+    }
 
-    res.json(candles);
+    res.json(apiCandles);
   } catch (err) {
     console.error('Chart fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch chart data' });
@@ -974,7 +1127,6 @@ async function startServer() {
 }
 
 startServer();
-
 
 
 
