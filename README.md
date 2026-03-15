@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="100%" alt="AssetGuard Banner" />
+  <img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="100%" alt="AssetMaster Banner" />
   
-  # 🛡️ AssetGuard | 資產守衛
+  # 🛡️ AssetMaster | 管理大師
   
   **全方位投資組合視覺化與管理平台**
   
@@ -18,7 +18,7 @@
 
 ## 🚀 功能特色
 
-AssetGuard 是為現代投資者設計的資產管理工具，整合了台股、美股與加密貨幣，提供直觀、美觀且數據驅動的決策支援。
+AssetMaster 是為現代投資者設計的資產管理工具，整合了台股、美股與加密貨幣，提供直觀、美觀且數據驅動的決策支援。
 
 - **📊 多元資產配置追蹤**：一站式管理台股、美股與加密貨幣，自動計算即時匯率與總資產比例。
 - **📈 深度視覺化圖表**：
@@ -34,7 +34,7 @@ AssetGuard 是為現代投資者設計的資產管理工具，整合了台股、
 
 ## 🛠️ 技術架構
 
-AssetGuard 採用領先的全端技術棧，確保高效能與開發體驗：
+AssetMaster 採用領先的全端技術棧，確保高效能與開發體驗：
 
 - **Frontend**: React 19, TypeScript, Vite, Recharts, Lightweight-Charts.
 - **Backend**: Express 5 (latest!), Node.js, TSX.
@@ -52,8 +52,8 @@ AssetGuard 採用領先的全端技術棧，確保高效能與開發體驗：
 
 1. **複製專案**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/assetguard.git
-   cd assetguard
+   git clone https://github.com/YuZhouLeo/AssetMaster-Dashboard.git
+   cd AssetMaster-Dashboard
    ```
 
 2. **安裝依賴**
@@ -83,7 +83,7 @@ AssetGuard 採用領先的全端技術棧，確保高效能與開發體驗：
 ## 🚢 部署指南
 
 ### Zeabur 部署
-AssetGuard 已為 Zeabur 優化：
+AssetMaster 已預設為 Zeabur 優化：
 - **Runtime**: Node.js
 - **Install Command**: `npm install`
 - **Build Command**: `npm run build`
@@ -92,6 +92,6 @@ AssetGuard 已為 Zeabur 優化：
 ---
 
 <div align="center">
-  <p>Made with ❤️ by AssetGuard Team</p>
+  <p>Made with ❤️ by AssetMaster Team</p>
   <p><i>剛處理完這個 Bug，我覺得我的髮際線又往後撤了 1 公分，這就是開發者的浪漫吧。</i></p>
 </div>

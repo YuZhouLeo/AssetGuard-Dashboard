@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Holding, PortfolioType, CandleData } from './types';
 import PortfolioColumn from './components/PortfolioColumn';
 import CandlestickChart from './components/CandlestickChart';
@@ -286,7 +286,7 @@ const App: React.FC = () => {
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-primary to-brand-purple flex items-center justify-center shadow-lg mx-auto">
             <LayoutDashboard size={32} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight mt-6">資產<span className="text-brand-secondary">守衛</span></h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight mt-6">管理<span className="text-brand-secondary">大師</span></h1>
           <p className="text-slate-400 mt-2 text-sm">智慧資產組合儀表板</p>
           <a href="/auth/google" className="mt-8 flex items-center gap-3 w-full justify-center px-6 py-3 bg-white hover:bg-slate-100 text-slate-800 font-semibold rounded-xl transition-all shadow-lg">
             <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.9 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.4-.4-3.5z" /></svg>
@@ -306,7 +306,7 @@ const App: React.FC = () => {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-primary to-brand-purple flex items-center justify-center shadow-lg">
                 <LayoutDashboard size={18} className="text-white" />
               </div>
-              <span className="font-bold text-xl tracking-tight text-white">資產<span className="text-brand-secondary">守衛</span></span>
+              <span className="font-bold text-xl tracking-tight text-white">管理<span className="text-brand-secondary">大師</span></span>
             </div>
             <div className="flex items-center gap-3">
               {currentUser.avatarUrl ? (
