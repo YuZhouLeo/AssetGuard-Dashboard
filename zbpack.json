@@ -1,0 +1,5 @@
+{
+  "app_dir": "/",
+  "build_command": "npm install && npx prisma generate && npm run build",
+  "start_command": "npx prisma db push && node --experimental-strip-types server.ts"
+}

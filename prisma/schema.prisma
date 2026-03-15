@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  googleId    String?   @unique
+  avatarUrl   String?
+  principal   Float     @default(1200000)
+  shortTarget Float     @default(500000)
+  midTarget   Float     @default(420000)
+  longTarget  Float     @default(360000)
+  holdings    Holding[]
+}
+
+model Holding {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  ticker        String
+  name          String
+  market        String
+  portfolioType String
+  amount        Float
+  avgPrice      Float
+  purchaseDate  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model StockCache {
+  ticker       String   @id
+  name         String?
+  market       String
+  currentPrice Float
+  change24h    Float
+  lastUpdated  DateTime @default(now())
+}
