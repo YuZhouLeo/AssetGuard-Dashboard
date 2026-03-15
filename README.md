@@ -1,9 +1,5 @@
 <div align="center">
-<<<<<<< HEAD
   <img src="public/images/banner.png" width="100%" alt="AssetMaster Banner" />
-=======
-https://127.0.0.1:57143/static/artifacts/13740144-bacf-4733-923f-48c6bbb3f5ab/assetguard_social_preview_1773582238417.png?csrf=9785b444-06bf-4d58-9fd2-8c1b3e0c0f6c
->>>>>>> 8f94ec499a8a6df748387126d0c3cf9e0052d7ce
   
   # 🛡️ AssetMaster | 管理大師
   
