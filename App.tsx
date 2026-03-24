@@ -228,22 +228,24 @@ const App: React.FC = () => {
   const totalInvestmentCost = rawShortCost + (rawMidCost + rawLongCost) * exchangeRate;
   const cashRemaining = Math.max(0, principal - totalInvestmentCost);
 
-  // 未實現損益排除當日新增倉位
+  // 未實現損益：用昨天的庫存 × 今日價格變化（排除當日新增倉位）
   const todayStr = new Date().toISOString().split('T')[0];
   const isNewHolding = (h: { purchaseDate?: string }) =>
     (h.purchaseDate ?? '').startsWith(todayStr);
 
-  const pnlShortValue = useMemo(() => shortHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.currentPrice, 0), [shortHoldings, todayStr]);
-  const pnlMidValue = useMemo(() => midHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.currentPrice, 0), [midHoldings, todayStr]);
-  const pnlLongValue = useMemo(() => longHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.currentPrice, 0), [longHoldings, todayStr]);
+  // 計算每個持倉的日內損益：amount × (currentPrice - prevClose)
+  // prevClose = currentPrice / (1 + change24h / 100)
+  const calcDailyPnl = (holdings: Holding[]) =>
+    holdings.filter(h => !isNewHolding(h)).reduce((sum, h) => {
+      const prevClose = h.change24h !== 0 ? h.currentPrice / (1 + h.change24h / 100) : h.currentPrice;
+      return sum + h.amount * (h.currentPrice - prevClose);
+    }, 0);
 
-  const pnlShortCost = useMemo(() => shortHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.avgPrice, 0), [shortHoldings, todayStr]);
-  const pnlMidCost = useMemo(() => midHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.avgPrice, 0), [midHoldings, todayStr]);
-  const pnlLongCost = useMemo(() => longHoldings.filter(h => !isNewHolding(h)).reduce((sum, h) => sum + h.amount * h.avgPrice, 0), [longHoldings, todayStr]);
+  const pnlShortDaily = useMemo(() => calcDailyPnl(shortHoldings), [shortHoldings, todayStr]);
+  const pnlMidDaily = useMemo(() => calcDailyPnl(midHoldings), [midHoldings, todayStr]);
+  const pnlLongDaily = useMemo(() => calcDailyPnl(longHoldings), [longHoldings, todayStr]);
 
-  const pnlMarketValue = pnlShortValue + (pnlMidValue + pnlLongValue) * exchangeRate;
-  const pnlInvestmentCost = pnlShortCost + (pnlMidCost + pnlLongCost) * exchangeRate;
-  const totalUnrealizedPnl = pnlMarketValue - pnlInvestmentCost;
+  const totalUnrealizedPnl = pnlShortDaily + (pnlMidDaily + pnlLongDaily) * exchangeRate;
 
   const newHoldingsCount = useMemo(() =>
     [...shortHoldings, ...midHoldings, ...longHoldings].filter(isNewHolding).length,

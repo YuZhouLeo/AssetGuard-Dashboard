@@ -3,11 +3,13 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# 先複製 package 文件（利用 Docker layer cache）
+# 複製 package 文件（利用 Docker layer cache）
 COPY package*.json ./
 
-# 安裝所有依賴（包含 vite 等 build 工具）
-RUN npm install
+# 強制安裝所有依賴（包含 vite 等 devDependencies）
+# Zeabur 會自動設 NODE_ENV=production，導致 npm ci 跳過 devDeps，所以這裡要覆蓋
+ENV NODE_ENV=development
+RUN npm ci
 
 # 複製全部原始碼
 COPY . .
@@ -23,9 +25,10 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# 只複製運行時需要的東西
+# 只安裝 production 依賴
 COPY package*.json ./
-RUN npm install --omit=dev
+ENV NODE_ENV=production
+RUN npm ci --omit=dev
 
 # 複製 Prisma schema 和生成的 client
 COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma

@@ -43,3 +43,16 @@ model StockCache {
   change24h    Float
   lastUpdated  DateTime @default(now())
 }
+
+model StockDailyPrice {
+  ticker String
+  date   String   // YYYY-MM-DD
+  open   Float
+  high   Float
+  low    Float
+  close  Float
+  volume Float    @default(0)
+
+  @@id([ticker, date])
+  @@index([ticker])
+}

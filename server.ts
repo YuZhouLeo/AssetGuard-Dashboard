@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import passport from 'passport';
@@ -8,9 +8,7 @@ import createMemoryStore from 'memorystore';
 import connectPgSimple from 'connect-pg-simple';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { PrismaClient } from '@prisma/client';
-import { createServer as createViteServer } from 'vite';
 import yahooFinance from 'yahoo-finance2';
-import cron from 'node-cron';
 
 declare global {
   namespace Express {
@@ -448,7 +446,7 @@ async function getUsdTwdRate() {
         console.log(`Current USD/TWD Rate Updated: ${cachedRate}`);
       }
     } catch (e) {
-      console.error('Exchange rate fetch failed, using fallback:', e);
+      console.error('Exchange rate fetch failed, using fallback:', (e as Error).message);
     }
   }
   return cachedRate;
@@ -579,7 +577,7 @@ async function fetchTaiwanOfficialPrices() {
     }
     console.log('Taiwan official prices updated successfully.');
   } catch (err) {
-    console.error('Failed to fetch Taiwan official prices:', err);
+    console.error('Failed to fetch Taiwan official prices:', (err as Error).message);
   }
 }
 
@@ -680,7 +678,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
         };
       }
     } catch (e) {
-      console.error(`Finnhub API fetch failed for ${ticker}`, e);
+      console.error(`Finnhub API fetch failed for ${ticker}:`, (e as Error).message);
     }
   }
 
@@ -710,16 +708,18 @@ app.get('/api/prices', requireAuth, async (req, res) => {
       where: { userId, ticker: { in: tickerList } }
     });
 
-    for (let ticker of tickerList) {
+    const now = new Date();
+    const todayDate = now.toISOString().split('T')[0];
+
+    // 併發控制：最多同時 5 個請求，避免被外部 API 限流
+    const CONCURRENCY = 5;
+    const fetchOne = async (ticker: string) => {
       // 蝯曹?閬嚗??ticker ?典翰?葉銝 .TW
       const cleanTicker = ticker.replace('.TW', '').toUpperCase();
       const market = holdings.find(h => h.ticker === ticker)?.market || 'US';
       
       let cache = await (prisma.stockCache as any).findUnique({ where: { ticker: cleanTicker } });
-      const now = new Date();
-      const todayDate = now.toISOString().split('T')[0];
 
-      // 優先使用資料庫快取；僅在無快取、非今日資料、或缺公司名時才呼叫 API
       const needsName = !cache || !cache.name;
       const isStale = !cache || cache.lastUpdated.toISOString().split('T')[0] < todayDate;
       if (isStale || needsName) {
@@ -751,7 +751,14 @@ app.get('/api/prices', requireAuth, async (req, res) => {
           change24h: cache.change24h
         };
       }
+    };
+
+    // 分批併發執行
+    for (let i = 0; i < tickerList.length; i += CONCURRENCY) {
+      const batch = tickerList.slice(i, i + CONCURRENCY);
+      await Promise.allSettled(batch.map(fetchOne));
     }
+
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: 'Price update error' });
@@ -785,10 +792,11 @@ app.post('/api/prices/refresh-global', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     const holdings = await prisma.holding.findMany({ 
-      where: { userId, market: { in: ['US', 'CRYPTO'] } } 
+      where: { userId, market: { in: ['US', 'CRYPTO'] } }
     });
-    
-    for (const h of holdings) {
+
+    const CONCURRENCY = 5;
+    const refreshOne = async (h: typeof holdings[number]) => {
       // 撘瑕?? API ?脣???啣?蝔梯??勗
       const newData = await fetchPriceDirectly(h.ticker, h.market, true);
       if (newData) {
@@ -807,7 +815,13 @@ app.post('/api/prices/refresh-global', requireAuth, async (req, res) => {
           });
         }
       }
+    };
+
+    for (let i = 0; i < holdings.length; i += CONCURRENCY) {
+      const batch = holdings.slice(i, i + CONCURRENCY);
+      await Promise.allSettled(batch.map(refreshOne));
     }
+
     res.json({ success: true, message: 'Global prices and names refreshed' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to refresh global prices' });
@@ -875,10 +889,44 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
       } catch (_dbErr) { /* fall through to API */ } // ??ticker ?芣?銝甈?
       try {
         const isTW = h.market === 'TW' || /^\d+$/.test(ticker);
-        const queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
+        const isCrypto = h.market === 'CRYPTO';
+        let queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
+        if (isCrypto && !queryTicker.includes('-')) {
+          queryTicker = `${queryTicker.toUpperCase()}-USD`; // Yahoo format fallback
+        }
+
+        // 1. 加密貨幣：優先使用 Binance
+        if (isCrypto) {
+          try {
+            const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
+            const from = start.getTime();
+            const to = today.getTime();
+            const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
+            const data: any = await response.json();
+            
+            if (Array.isArray(data) && data.length > 0) {
+              const prices: Record<string, number> = {};
+              for (const k of data) {
+                const dateStr = new Date(k[0]).toISOString().split('T')[0];
+                const closePrice = parseFloat(k[4]);
+                prices[dateStr] = closePrice;
+                await (prisma.stockDailyPrice as any).upsert({
+                   where: { ticker_date: { ticker, date: dateStr } },
+                   update: { open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: closePrice, volume: parseFloat(k[5]) },
+                   create: { ticker, date: dateStr, open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: closePrice, volume: parseFloat(k[5]) }
+                }).catch(() => {});
+              }
+              const cleanKey = isTW ? ticker.replace('.TW', '') : ticker;
+              historyByTicker[cleanKey] = prices;
+              continue; // 成功取得 Binance 歷史，跳過後續
+            }
+          } catch(e) {
+            console.warn(`Binance history fetch failed for ${ticker}, fallback to Yahoo...`);
+          }
+        }
 
         // ?芸??岫雿輻 Finnhub ?脣?蝢甇瑕鞈? (閫?捱 Yahoo 鋡急???)
-        if (!isTW && process.env.FINNHUB_API_KEY) {
+        if (!isTW && !isCrypto && process.env.FINNHUB_API_KEY) {
           try {
             const from = Math.floor(start.getTime() / 1000);
             const to = Math.floor(today.getTime() / 1000);
@@ -988,7 +1036,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error('PnL history error:', err);
+    console.error('PnL history error:', (err as Error).message);
     res.status(500).json({ error: 'Failed to compute PnL history' });
   }
 });
@@ -1028,9 +1076,33 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
 
     // 2. 資料不足，從 API 下載並存入 DB
     let apiCandles: any[] = [];
+    const isCrypto = market === 'CRYPTO';
+
+    // 加密貨幣：Binance 抓取全期 K 線
+    if (isCrypto) {
+      try {
+        const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
+        const from = oneYearAgo.getTime();
+        const to = today.getTime();
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
+        const data: any = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          apiCandles = data.map((k: any) => ({
+            time: Math.floor(k[0] / 1000),
+            open: parseFloat(k[1]),
+            high: parseFloat(k[2]),
+            low: parseFloat(k[3]),
+            close: parseFloat(k[4]),
+            volume: parseFloat(k[5]),
+          }));
+        }
+      } catch (e) {
+        console.warn(`Binance chart fetch failed for ${ticker}, fallback to Yahoo`);
+      }
+    }
 
     // 美股：Finnhub
-    if (!isTW && process.env.FINNHUB_API_KEY) {
+    if (!isTW && !isCrypto && process.env.FINNHUB_API_KEY && apiCandles.length === 0) {
       try {
         const from = Math.floor(oneYearAgo.getTime() / 1000);
         const to = Math.floor(today.getTime() / 1000);
@@ -1054,7 +1126,10 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
     // 台股或 Finnhub 失敗：Yahoo Finance
     if (apiCandles.length === 0) {
       try {
-        const queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
+        let queryTicker = isTW ? (ticker.endsWith('.TW') ? ticker : `${ticker}.TW`) : ticker;
+        if (isCrypto && !queryTicker.includes('-')) {
+          queryTicker = `${queryTicker.toUpperCase()}-USD`; // Yahoo format fallback
+        }
         const historical: any = await (yahooFinance as any).chart(queryTicker, {
           period1: oneYearAgoStr,
           period2: todayStr,
@@ -1090,24 +1165,18 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
 
     res.json(apiCandles);
   } catch (err) {
-    console.error('Chart fetch error:', err);
+    console.error('Chart fetch error:', (err as Error).message);
     res.status(500).json({ error: 'Failed to fetch chart data' });
   }
 });
 
 
-// ??? Cron Jobs ????????????????????????????????????????????????????????????????
-
-function setupCronJobs() {
-  // 撌脫??嗉?瘙宏??13:35 ???啁?摨??寧?梁?嗆?????啜?}
-}
 
 // ??? Server Start ?????????????????????????????????????????????????????????????
 
 async function startServer() {
-  setupCronJobs();
-
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
