@@ -3,15 +3,12 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# 複製 package 文件（利用 Docker layer cache）
 COPY package*.json ./
 
-# 強制安裝所有依賴（包含 vite 等 devDependencies）
-# Zeabur 會自動設 NODE_ENV=production，導致 npm ci 跳過 devDeps，所以這裡要覆蓋
+# 強制安裝所有依賴（Zeabur 會設 NODE_ENV=production 導致跳過 devDeps）
 ENV NODE_ENV=development
 RUN npm ci
 
-# 複製全部原始碼
 COPY . .
 
 # 生成 Prisma Client
@@ -20,12 +17,14 @@ RUN npx prisma generate
 # 建構 Vite 前端
 RUN npm run build
 
+# 將 server.ts 編譯為 JS（避免 runtime 依賴 --experimental-strip-types）
+RUN npx tsc server.ts --module nodenext --moduleResolution nodenext --target ES2022 --esModuleInterop --skipLibCheck --outDir dist-server
+
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:22-alpine
 
 WORKDIR /app
 
-# 只安裝 production 依賴
 COPY package*.json ./
 ENV NODE_ENV=production
 RUN npm ci --omit=dev
@@ -38,12 +37,14 @@ COPY --chown=node:node prisma ./prisma
 # 複製編譯好的前端
 COPY --from=builder --chown=node:node /app/dist ./dist
 
-# 複製 server 原始碼（node 22 原生支援 --experimental-strip-types）
-COPY --chown=node:node server.ts ./
-COPY --chown=node:node types.ts ./
+# 複製編譯後的 server JS
+COPY --from=builder --chown=node:node /app/dist-server/server.js ./server.js
+
+# 複製 DB 啟動腳本
+COPY --chown=node:node start.sh ./start.sh
+RUN chmod +x start.sh
 
 EXPOSE 3000
 
-# 啟動：先同步資料庫 schema，再跑 server
 USER node
-CMD ["sh", "-c", "npx prisma db push && node --experimental-strip-types server.ts"]
+CMD ["sh", "./start.sh"]

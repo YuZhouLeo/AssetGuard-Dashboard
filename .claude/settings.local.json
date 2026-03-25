@@ -5,7 +5,8 @@
       "Bash(npx tsc:*)",
       "Bash(grep -E \"\\\\.ts$|\\\\.tsx$\")",
       "Bash(grep -E \"\\\\.ts$|\\\\.tsx$|\\\\.js$\")",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "Bash(xxd start.sh)"
     ]
   }
 }
