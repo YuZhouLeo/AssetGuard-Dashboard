@@ -344,7 +344,7 @@ app.post('/api/holdings', requireAuth, async (req, res) => {
       const cleanTicker = isTW ? ticker.replace('.TW', '') : ticker;
 
       // ?芸?敺?StockCache ?曉?蝔?(?啗?虜蝎暹?嚗??∠?其???)
-      const cached = await (prisma.stockCache as any).findUnique({ where: { ticker: cleanTicker } });
+      const cached = await prisma.stockCache.findUnique({ where: { ticker: cleanTicker } });
       if (cached && (cached as any).name) {
         name = (cached as any).name;
       } else {
@@ -352,7 +352,7 @@ app.post('/api/holdings', requireAuth, async (req, res) => {
         const newData = await fetchPriceDirectly(ticker, market, true);
         if (newData) {
           name = newData.name || name;
-          await (prisma.stockCache as any).upsert({
+          await prisma.stockCache.upsert({
             where: { ticker: cleanTicker },
             update: { name: newData.name, currentPrice: newData.currentPrice, change24h: newData.change24h, lastUpdated: new Date() },
             create: { ticker: cleanTicker, name: newData.name, market: newData.market, currentPrice: newData.currentPrice, change24h: newData.change24h }
@@ -525,7 +525,7 @@ async function fetchTaiwanOfficialPrices() {
         const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
-        await (prisma.stockCache as any).upsert({
+        await prisma.stockCache.upsert({
           where: { ticker },
           update: { name: item.Name, currentPrice: close, change24h, lastUpdated: now },
           create: { ticker, name: item.Name, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
@@ -536,7 +536,7 @@ async function fetchTaiwanOfficialPrices() {
           const dateStr = item.Date
             ? `${parseInt(item.Date.substring(0, 3)) + 1911}-${item.Date.substring(3, 5)}-${item.Date.substring(5, 7)}`
             : todayStr;
-          await (prisma.stockDailyPrice as any).upsert({
+          await prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: dateStr } },
             update: { open, high, low, close, volume },
             create: { ticker, date: dateStr, open, high, low, close, volume }
@@ -560,14 +560,14 @@ async function fetchTaiwanOfficialPrices() {
         const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
-        await (prisma.stockCache as any).upsert({
+        await prisma.stockCache.upsert({
           where: { ticker },
           update: { name: item.CompanyName, currentPrice: close, change24h, lastUpdated: now },
           create: { ticker, name: item.CompanyName, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
         });
 
         if (close > 0) {
-          await (prisma.stockDailyPrice as any).upsert({
+          await prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: todayStr } },
             update: { open, high, low, close, volume },
             create: { ticker, date: todayStr, open, high, low, close, volume }
@@ -599,7 +599,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       if (data && data.lastPrice) {
         const price = parseFloat(data.lastPrice);
         // Binance 24hr 提供 openPrice/highPrice/lowPrice/lastPrice/volume
-        await (prisma.stockDailyPrice as any).upsert({
+        await prisma.stockDailyPrice.upsert({
           where: { ticker_date: { ticker, date: todayDateStr } },
           update: { open: parseFloat(data.openPrice) || price, high: parseFloat(data.highPrice) || price, low: parseFloat(data.lowPrice) || price, close: price, volume: parseFloat(data.volume) || 0 },
           create: { ticker, date: todayDateStr, open: parseFloat(data.openPrice) || price, high: parseFloat(data.highPrice) || price, low: parseFloat(data.lowPrice) || price, close: price, volume: parseFloat(data.volume) || 0 }
@@ -664,7 +664,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       if (quoteData && quoteData.c !== 0) {
         // 寫入當日 OHLC（Finnhub quote 提供 o/h/l/c）
         if (quoteData.o && quoteData.h && quoteData.l) {
-          await (prisma.stockDailyPrice as any).upsert({
+          await prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: todayDateStr } },
             update: { open: quoteData.o, high: quoteData.h, low: quoteData.l, close: quoteData.c },
             create: { ticker, date: todayDateStr, open: quoteData.o, high: quoteData.h, low: quoteData.l, close: quoteData.c, volume: 0 }
@@ -718,14 +718,14 @@ app.get('/api/prices', requireAuth, async (req, res) => {
       const cleanTicker = ticker.replace('.TW', '').toUpperCase();
       const market = holdings.find(h => h.ticker === ticker)?.market || 'US';
       
-      let cache = await (prisma.stockCache as any).findUnique({ where: { ticker: cleanTicker } });
+      let cache = await prisma.stockCache.findUnique({ where: { ticker: cleanTicker } });
 
       const needsName = !cache || !cache.name;
       const isStale = !cache || cache.lastUpdated.toISOString().split('T')[0] < todayDate;
       if (isStale || needsName) {
         const newData = await fetchPriceDirectly(ticker, market, needsName);
         if (newData) {
-          cache = await (prisma.stockCache as any).upsert({
+          cache = await prisma.stockCache.upsert({
             where: { ticker: cleanTicker },
             update: { 
               name: newData.name || undefined,
@@ -774,7 +774,7 @@ app.post('/api/prices/refresh-tw', requireAuth, async (req, res) => {
     const holdings = await prisma.holding.findMany({ where: { userId, market: 'TW' } });
     for (const h of holdings) {
       const cleanTicker = h.ticker.replace('.TW', '');
-      const cache = await (prisma.stockCache as any).findUnique({ where: { ticker: cleanTicker } });
+      const cache = await prisma.stockCache.findUnique({ where: { ticker: cleanTicker } });
       if (cache?.name && (!h.name || h.name === h.ticker)) {
         await prisma.holding.update({
           where: { id: h.id },
@@ -801,7 +801,7 @@ app.post('/api/prices/refresh-global', requireAuth, async (req, res) => {
       const newData = await fetchPriceDirectly(h.ticker, h.market, true);
       if (newData) {
         // ?湔敹怠?
-        await (prisma.stockCache as any).upsert({
+        await prisma.stockCache.upsert({
           where: { ticker: h.ticker },
           update: { name: newData.name, currentPrice: newData.currentPrice, change24h: newData.change24h, lastUpdated: new Date() },
           create: { ticker: h.ticker, name: newData.name, market: newData.market, currentPrice: newData.currentPrice, change24h: newData.change24h }
@@ -875,7 +875,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
       if (historyByTicker[ticker]) continue;
       try {
         // 1. DB first
-        const dbPrices = await (prisma.stockDailyPrice as any).findMany({
+        const dbPrices = await prisma.stockDailyPrice.findMany({
           where: { ticker, date: { gte: startStr, lte: todayStr } },
           orderBy: { date: 'asc' }
         });
@@ -910,7 +910,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
                 const dateStr = new Date(k[0]).toISOString().split('T')[0];
                 const closePrice = parseFloat(k[4]);
                 prices[dateStr] = closePrice;
-                await (prisma.stockDailyPrice as any).upsert({
+                await prisma.stockDailyPrice.upsert({
                    where: { ticker_date: { ticker, date: dateStr } },
                    update: { open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: closePrice, volume: parseFloat(k[5]) },
                    create: { ticker, date: dateStr, open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: closePrice, volume: parseFloat(k[5]) }
@@ -938,7 +938,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
               for (let i = 0; i < data.t.length; i++) {
                 const dateStr = new Date(data.t[i] * 1000).toISOString().split('T')[0];
                 prices[dateStr] = data.c[i];
-                await (prisma.stockDailyPrice as any).upsert({
+                await prisma.stockDailyPrice.upsert({
                   where: { ticker_date: { ticker, date: dateStr } },
                   update: { open: data.o[i], high: data.h[i], low: data.l[i], close: data.c[i], volume: data.v ? data.v[i] : 0 },
                   create: { ticker, date: dateStr, open: data.o[i], high: data.h[i], low: data.l[i], close: data.c[i], volume: data.v ? data.v[i] : 0 }
@@ -964,7 +964,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
           if (q.date && q.close) {
             const dateStr = new Date(q.date).toISOString().split('T')[0];
             prices[dateStr] = q.close;
-            await (prisma.stockDailyPrice as any).upsert({
+            await prisma.stockDailyPrice.upsert({
               where: { ticker_date: { ticker, date: dateStr } },
               update: { open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 },
               create: { ticker, date: dateStr, open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 }
@@ -1056,7 +1056,7 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
     const todayStr = today.toISOString().split('T')[0];
 
     // 1. 先從資料庫讀取已有的日K線
-    const dbPrices = await (prisma.stockDailyPrice as any).findMany({
+    const dbPrices = await prisma.stockDailyPrice.findMany({
       where: { ticker, date: { gte: oneYearAgoStr, lte: todayStr } },
       orderBy: { date: 'asc' }
     });
@@ -1155,7 +1155,7 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
     for (const c of apiCandles) {
       const dateStr = new Date(c.time * 1000).toISOString().split('T')[0];
       try {
-        await (prisma.stockDailyPrice as any).upsert({
+        await prisma.stockDailyPrice.upsert({
           where: { ticker_date: { ticker, date: dateStr } },
           update: { open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 },
           create: { ticker, date: dateStr, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }
