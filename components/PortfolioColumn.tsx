@@ -51,6 +51,9 @@ const PortfolioColumn: React.FC<Props> = ({
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState({ amount: '', avgPrice: '' });
 
+    // 切換圓餅圖計算模式 (預設 True: 以倉位資金計算, False: 純持倉計算)
+    const [isTargetMode, setIsTargetMode] = useState(true);
+
     // 匯率乘數判斷
     const multiplier = type === 'SHORT' ? 1 : exchangeRate;
 
@@ -106,9 +109,15 @@ const PortfolioColumn: React.FC<Props> = ({
         if (res.ok && onRefresh) await onRefresh();
     };
 
-    const chartData = holdings.length > 0 
-        ? holdings.map(h => ({ name: h.name || h.ticker, value: h.amount * h.currentPrice }))
-        : [{ name: '無持倉', value: 1 }];
+    let chartData = holdings.map(h => ({ name: h.name || h.ticker, value: h.amount * h.currentPrice }));
+    
+    if (isTargetMode && targetValue > totalValue) {
+        chartData.push({ name: '現金', value: targetValue - totalValue });
+    }
+
+    if (chartData.length === 0) {
+        chartData = [{ name: '無持倉', value: 1 }];
+    }
     
     const COLORS = [color, '#64748b', '#475569', '#334155', '#94a3b8'];
 
@@ -140,7 +149,7 @@ const PortfolioColumn: React.FC<Props> = ({
                 <div className="flex justify-between items-baseline">
                     <div className="text-2xl font-bold text-white mt-1">{formatCurrency(totalValue, currency)}</div>
                     <div className="text-right">
-                        <span className="text-xs text-slate-500 block">目標配置</span>
+                        <span className="text-xs text-slate-500 block">倉位資金</span>
                         {editingTarget ? (
                             <div className="flex items-center gap-1 mt-0.5">
                                 <input autoFocus type="number" className="w-24 bg-[#0b0e11] border border-brand-primary rounded px-1 py-0.5 text-sm text-white" value={tempTarget} onChange={e => onTempTargetChange?.(e.target.value)} />
@@ -204,11 +213,22 @@ const PortfolioColumn: React.FC<Props> = ({
             )}
 
             {/* Pie Chart */}
-            <div className="h-32 w-full relative shrink-0">
+            <div 
+                className="h-32 w-full relative shrink-0 cursor-pointer group/chart"
+                onClick={() => setIsTargetMode(!isTargetMode)}
+            >
+                <div className="absolute top-0 right-4 text-[10px] text-slate-500 opacity-0 group-hover/chart:opacity-100 xl:opacity-100 transition-opacity z-10 flex items-center gap-1 bg-[#1e232e] px-2 py-1 rounded border border-slate-700">
+                    <RefreshCcw size={10} /> 模式: {isTargetMode ? '倉位資金' : '單純持倉'}
+                </div>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie data={chartData} cx="50%" cy="50%" innerRadius={35} outerRadius={50} paddingAngle={2} dataKey="value" stroke="none">
-                            {chartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                            {chartData.map((entry, index) => (
+                                <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={entry.name === '現金' ? '#334155' : COLORS[index % COLORS.length]} 
+                                />
+                            ))}
                         </Pie>
                         <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', fontSize: '11px' }} />
                     </PieChart>
