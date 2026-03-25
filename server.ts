@@ -8,7 +8,8 @@ import createMemoryStore from 'memorystore';
 import connectPgSimple from 'connect-pg-simple';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { PrismaClient } from '@prisma/client';
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
+const yahooFinance = new YahooFinance();
 
 declare global {
   namespace Express {
@@ -509,11 +510,20 @@ async function fetchTaiwanOfficialPrices() {
   console.log('Fetching official TWSE/TPEx prices...');
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
+  const BATCH = 200;
+
+  async function runBatched(ops: any[]) {
+    for (let i = 0; i < ops.length; i += BATCH) {
+      await prisma.$transaction(ops.slice(i, i + BATCH));
+    }
+  }
+
   try {
-    // 1. 銝? (TWSE)
+    // 1. 上市 (TWSE)
     const twseRes = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL');
     const twseData = await twseRes.json();
     if (Array.isArray(twseData)) {
+      const ops: any[] = [];
       for (const item of twseData) {
         const ticker = item.Code;
         const open = parseFloat(item.OpeningPrice) || 0;
@@ -525,30 +535,32 @@ async function fetchTaiwanOfficialPrices() {
         const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
-        await prisma.stockCache.upsert({
+        ops.push(prisma.stockCache.upsert({
           where: { ticker },
           update: { name: item.Name, currentPrice: close, change24h, lastUpdated: now },
           create: { ticker, name: item.Name, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
-        });
+        }));
 
-        // 寫入當日 OHLC 到 StockDailyPrice（民國日期轉西元）
         if (close > 0) {
           const dateStr = item.Date
             ? `${parseInt(item.Date.substring(0, 3)) + 1911}-${item.Date.substring(3, 5)}-${item.Date.substring(5, 7)}`
             : todayStr;
-          await prisma.stockDailyPrice.upsert({
+          ops.push(prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: dateStr } },
             update: { open, high, low, close, volume },
             create: { ticker, date: dateStr, open, high, low, close, volume }
-          });
+          }));
         }
       }
+      await runBatched(ops);
+      console.log(`TWSE: ${twseData.length} stocks processed`);
     }
 
-    // 2. 銝? (TPEx)
+    // 2. 上櫃 (TPEx)
     const tpexRes = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes');
     const tpexData = await tpexRes.json();
     if (Array.isArray(tpexData)) {
+      const ops: any[] = [];
       for (const item of tpexData) {
         const ticker = item.SecuritiesCompanyCode;
         const open = parseFloat(item.Open) || 0;
@@ -560,26 +572,29 @@ async function fetchTaiwanOfficialPrices() {
         const prevClose = close - change;
         const change24h = prevClose !== 0 ? (change / prevClose) * 100 : 0;
 
-        await prisma.stockCache.upsert({
+        ops.push(prisma.stockCache.upsert({
           where: { ticker },
           update: { name: item.CompanyName, currentPrice: close, change24h, lastUpdated: now },
           create: { ticker, name: item.CompanyName, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
-        });
+        }));
 
         if (close > 0) {
-          await prisma.stockDailyPrice.upsert({
+          ops.push(prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: todayStr } },
             update: { open, high, low, close, volume },
             create: { ticker, date: todayStr, open, high, low, close, volume }
-          });
+          }));
         }
       }
+      await runBatched(ops);
+      console.log(`TPEx: ${tpexData.length} stocks processed`);
     }
     console.log('Taiwan official prices updated successfully.');
   } catch (err) {
     console.error('Failed to fetch Taiwan official prices:', (err as Error).message);
   }
 }
+
 
 // ??? Price Cache API ??????????????????????????????????????????????????????????
 
@@ -620,7 +635,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
   if (market === 'TW' || /^\d+$/.test(ticker)) {
     try {
       const queryTicker = ticker.endsWith('.TW') ? ticker : `${ticker}.TW`;
-      const quote: any = await (yahooFinance as any).quote(queryTicker);
+      const quote: any = await yahooFinance.quote(queryTicker);
       if (quote) {
         return {
           currentPrice: quote.regularMarketPrice,
@@ -783,7 +798,8 @@ app.post('/api/prices/refresh-tw', requireAuth, async (req, res) => {
       }
     }
     res.json({ success: true, message: 'TW prices and names refreshed' });
-  } catch {
+  } catch (err) {
+    console.error('refresh-tw error:', (err as Error).message);
     res.status(500).json({ error: 'Failed to refresh TW prices' });
   }
 });
@@ -862,21 +878,21 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
       return d < earliest ? d : earliest;
     }, new Date());
 
-    // clamp history range to most recent 60 days
+    // 圖表顯示最近 60 天
     const start = new Date(Math.max(earliestDate.getTime(), today.getTime() - 60 * 24 * 3600 * 1000));
+    // 為了解決「昨日價差」問題，抓取歷史數據時往前半推 10 天
+    const startForFetch = new Date(start.getTime() - 10 * 24 * 3600 * 1000);
 
-    // Fetch price history per ticker — 優先從 StockDailyPrice DB 讀取
     const historyByTicker: Record<string, Record<string, number>> = {};
-    const startStr = start.toISOString().split('T')[0];
+    const fetchStartStr = startForFetch.toISOString().split('T')[0];
     const todayStr = today.toISOString().split('T')[0];
 
     for (const h of holdingsForPnl) {
       const ticker = h.ticker;
       if (historyByTicker[ticker]) continue;
       try {
-        // 1. DB first
         const dbPrices = await prisma.stockDailyPrice.findMany({
-          where: { ticker, date: { gte: startStr, lte: todayStr } },
+          where: { ticker, date: { gte: fetchStartStr, lte: todayStr } },
           orderBy: { date: 'asc' }
         });
         if (dbPrices.length >= 5) {
@@ -899,7 +915,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
         if (isCrypto) {
           try {
             const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
-            const from = start.getTime();
+            const from = startForFetch.getTime();
             const to = today.getTime();
             const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
             const data: any = await response.json();
@@ -928,7 +944,7 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
         // ?芸??岫雿輻 Finnhub ?脣?蝢甇瑕鞈? (閫?捱 Yahoo 鋡急???)
         if (!isTW && !isCrypto && process.env.FINNHUB_API_KEY) {
           try {
-            const from = Math.floor(start.getTime() / 1000);
+            const from = Math.floor(startForFetch.getTime() / 1000);
             const to = Math.floor(today.getTime() / 1000);
             const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
             const data: any = await response.json();
@@ -952,9 +968,9 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
           }
         }
 
-        const historical: any = await (yahooFinance as any).chart(queryTicker, {
-          period1: start.toISOString().split('T')[0],
-          period2: today.toISOString().split('T')[0],
+        const historical: any = await yahooFinance.chart(queryTicker, {
+          period1: fetchStartStr,
+          period2: todayStr,
           interval: '1d',
         });
 
@@ -992,7 +1008,24 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
 
     // aggregate portfolio value and day-over-day change
     const result: { date: string; totalValue: number; dailyChange: number }[] = [];
-    const prevEntryPrices: Record<string, number> = {}; // 餈質馱????銝憭拍??寞
+    const prevEntryPrices: Record<string, number> = {}; // 儲存昨日價格
+
+    // 為起點前的持倉初始化昨日價格，使趨勢圖起點不為零
+    for (const h of holdingsForPnl) {
+      const isTW = h.market === 'TW' || /^\d+$/.test(h.ticker);
+      const cleanKey = isTW ? h.ticker.replace('.TW', '') : h.ticker;
+      const tickerPrices = historyByTicker[cleanKey] || {};
+      const holdingDateStr = new Date(h.purchaseDate).toISOString().split('T')[0];
+
+      if (holdingDateStr < dateList[0]) {
+        const pastDates = Object.keys(tickerPrices).filter(d => d < dateList[0]).sort();
+        if (pastDates.length > 0) {
+          prevEntryPrices[h.id] = tickerPrices[pastDates[pastDates.length - 1]];
+        } else {
+          prevEntryPrices[h.id] = h.avgPrice || 0;
+        }
+      }
+    } // 餈質馱????銝憭拍??寞
 
     for (const dateStr of dateList) {
       let dayTotal = 0;
@@ -1000,30 +1033,32 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
 
       for (const h of holdingsForPnl) {
         const holdingDateStr = new Date(h.purchaseDate).toISOString().split('T')[0];
-        // skip holdings not yet purchased on this day
+        // 尚未購買
         if (holdingDateStr > dateStr) continue;
 
         const isTW = h.market === 'TW' || /^\d+$/.test(h.ticker);
         const cleanKey = isTW ? h.ticker.replace('.TW', '') : h.ticker;
-        const tickerPrices = historyByTicker[cleanKey];
+        const tickerPrices = historyByTicker[cleanKey] || {};
         
-        const currentPrice = (tickerPrices && tickerPrices[dateStr]) 
-          ? tickerPrices[dateStr] 
-          : (h.avgPrice || 0);
-
+        // 取得今日價格。若當天無交易（假日或數據缺失），則沿用昨日價格
+        const currentPrice = tickerPrices[dateStr] ?? prevEntryPrices[h.id] ?? h.avgPrice ?? 0;
         const multiplier = isTW ? 1 : rate;
+
         dayTotal += h.amount * currentPrice * multiplier;
 
-        // 新增倉位當天不計入每日損益，只從下一個交易日開始計算價格變動
+        // 如果是持倉第一天，昨日持倉視為 0，損益不計
         if (holdingDateStr === dateStr) {
           prevEntryPrices[h.id] = currentPrice;
           continue;
         }
 
+        // 損益計算：昨日持倉 * (今日價 - 昨日價) * 匯率
         if (prevEntryPrices[h.id] !== undefined) {
-          dayChange += h.amount * (currentPrice - prevEntryPrices[h.id]) * multiplier;
+          const delta = (currentPrice - prevEntryPrices[h.id]) * multiplier;
+          dayChange += h.amount * delta;
         }
 
+        // 更新價格供隔日迴圈使用
         prevEntryPrices[h.id] = currentPrice;
       }
 
@@ -1130,7 +1165,7 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
         if (isCrypto && !queryTicker.includes('-')) {
           queryTicker = `${queryTicker.toUpperCase()}-USD`; // Yahoo format fallback
         }
-        const historical: any = await (yahooFinance as any).chart(queryTicker, {
+        const historical: any = await yahooFinance.chart(queryTicker, {
           period1: oneYearAgoStr,
           period2: todayStr,
           interval: '1d',

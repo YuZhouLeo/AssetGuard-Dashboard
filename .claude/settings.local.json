@@ -6,7 +6,11 @@
       "Bash(grep -E \"\\\\.ts$|\\\\.tsx$\")",
       "Bash(grep -E \"\\\\.ts$|\\\\.tsx$|\\\\.js$\")",
       "Bash(xxd)",
-      "Bash(xxd start.sh)"
+      "Bash(xxd start.sh)",
+      "Bash(curl -s 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL' -H 'accept: application/json')",
+      "Bash(python3:*)",
+      "Bash(node -e \":*)",
+      "Bash(npx vite:*)"
     ]
   }
 }
