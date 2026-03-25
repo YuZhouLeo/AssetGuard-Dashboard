@@ -5,5 +5,5 @@
   "start": {
     "command": "npx prisma db push && node --experimental-strip-types server.ts"
   },
-  "port": 3000
+  "port": 8080
 }

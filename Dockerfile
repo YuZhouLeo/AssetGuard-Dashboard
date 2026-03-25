@@ -44,7 +44,7 @@ COPY --from=builder --chown=node:node /app/dist-server/server.js ./server.js
 COPY --chown=node:node start.sh ./start.sh
 RUN chmod +x start.sh
 
-EXPOSE 3000
+EXPOSE 8080
 
 USER node
 CMD ["sh", "./start.sh"]

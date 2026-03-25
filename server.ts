@@ -29,7 +29,7 @@ declare global {
 
 const prisma = new PrismaClient();
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
@@ -49,7 +49,7 @@ const configuredOrigins = (process.env.CORS_ORIGINS || '')
   .filter(Boolean);
 const allowedOrigins = configuredOrigins.length > 0
   ? configuredOrigins
-  : (isProd ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']);
+  : (isProd ? [] : ['http://localhost:8080', 'http://127.0.0.1:8080']);
 if (isProd && allowedOrigins.length === 0) {
   throw new Error('CORS_ORIGINS is required in production.');
 }
@@ -1190,7 +1190,7 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT) || 3000, '0.0.0.0', () => {
+  app.listen(Number(PORT) || 8080, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
