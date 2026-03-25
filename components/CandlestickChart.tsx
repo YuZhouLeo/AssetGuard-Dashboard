@@ -17,12 +17,12 @@ const CandlestickChart: React.FC<Props> = ({ data, ticker }) => {
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#151a21' }, // Matching card bg
-        textColor: '#94a3b8',
+        background: { type: ColorType.Solid, color: '#10243b' },
+        textColor: '#d9e9ff',
       },
       grid: {
-        vertLines: { color: '#2d3748' },
-        horzLines: { color: '#2d3748' },
+        vertLines: { color: '#2f4f73' },
+        horzLines: { color: '#2f4f73' },
       },
       width: chartContainerRef.current.clientWidth,
       height: 400,
@@ -33,11 +33,11 @@ const CandlestickChart: React.FC<Props> = ({ data, ticker }) => {
     });
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#ef4444',
+      upColor: '#34d399',
+      downColor: '#f87171',
       borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
+      wickUpColor: '#34d399',
+      wickDownColor: '#f87171',
     });
 
     candlestickSeries.setData(data);
@@ -67,10 +67,10 @@ const CandlestickChart: React.FC<Props> = ({ data, ticker }) => {
   }, [data]);
 
   return (
-    <div className="w-full bg-dark-card rounded-xl p-4 shadow-lg border border-dark-border">
+    <div className="app-panel w-full bg-dark-card rounded-xl p-4 shadow-lg border border-dark-border">
       <div className="flex justify-between items-center mb-4">
         <div>
-           <h3 className="text-xl font-bold text-white flex items-center gap-2">
+           <h3 className="font-display text-xl font-bold text-white flex items-center gap-2">
             <span className="text-brand-secondary">{ticker}</span>
             <span className="text-sm font-normal text-slate-400">日K線（近一年）</span>
           </h3>

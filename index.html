@@ -1,37 +1,37 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="zh-Hant" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>管理大師 Dashboard</title>
+    <title>資產管理 Dashboard</title>
     <script src="/tailwind-config.js"></script>
     <script src="/tailwindcss.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Manrope:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       body {
-        background-color: #0b0e11;
-        color: #e2e8f0;
+        margin: 0;
       }
-      /* Custom Scrollbar */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 10px;
+        height: 10px;
       }
       ::-webkit-scrollbar-track {
-        background: #0b0e11; 
+        background: #09172a;
       }
       ::-webkit-scrollbar-thumb {
-        background: #2d3748; 
-        border-radius: 4px;
+        background: linear-gradient(180deg, #19538a, #0f3a62);
+        border-radius: 999px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #4a5568; 
+        background: linear-gradient(180deg, #1e66a8, #165081);
       }
     </style>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <link rel="stylesheet" href="/index.css">
+  </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

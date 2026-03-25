@@ -283,8 +283,8 @@ const App: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-dark-bg flex flex-col items-center justify-center gap-8 font-sans">
-        <div className="bg-[#151a21]/80 backdrop-blur-md border border-dark-border rounded-3xl p-12 shadow-2xl max-w-md w-full mx-4 text-center">
+      <div className="app-shell min-h-screen bg-dark-bg flex flex-col items-center justify-center gap-8 font-sans">
+        <div className="app-glass bg-[#151a21]/80 backdrop-blur-md border border-dark-border rounded-3xl p-12 shadow-2xl max-w-md w-full mx-4 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-primary to-brand-purple flex items-center justify-center shadow-lg mx-auto">
             <LayoutDashboard size={32} className="text-white" />
           </div>
@@ -300,15 +300,15 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-200 pb-20 font-sans selection:bg-brand-primary selection:text-white">
-      <nav className="sticky top-0 z-50 bg-[#0b0e11]/80 backdrop-blur-md border-b border-dark-border">
+    <div className="app-shell min-h-screen bg-dark-bg text-slate-200 pb-20 font-sans selection:bg-brand-primary selection:text-white">
+      <nav className="app-topbar sticky top-0 z-50 bg-[#0b0e11]/80 backdrop-blur-md border-b border-dark-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-primary to-brand-purple flex items-center justify-center shadow-lg">
                 <LayoutDashboard size={18} className="text-white" />
               </div>
-              <span className="font-bold text-xl tracking-tight text-white">管理<span className="text-brand-secondary">大師</span></span>
+              <span className="font-display font-bold text-xl tracking-tight text-white">管理<span className="text-brand-secondary">大師</span></span>
             </div>
             <div className="flex items-center gap-3">
               {currentUser.avatarUrl ? (
@@ -339,7 +339,7 @@ const App: React.FC = () => {
               { name: '現金', value: Math.round(cash), color: '#64748b' },
             ].filter(d => d.value > 0);
             return (
-              <div className="bg-dark-card border border-dark-border rounded-2xl p-5 flex flex-col gap-2">
+              <div className="app-panel bg-dark-card border border-dark-border rounded-2xl p-5 flex flex-col gap-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-300 text-sm font-medium">資產配置比例</span>
                   <div className="flex items-center gap-2">
@@ -377,7 +377,7 @@ const App: React.FC = () => {
                     <div className="flex items-center justify-center h-full text-slate-600 text-xs">尚無持倉資料</div>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
                   {[
                     { name: '台股', value: twCost, color: '#06b6d4' },
                     { name: '美股', value: usCost, color: '#8b5cf6' },
@@ -397,7 +397,7 @@ const App: React.FC = () => {
                   <span className="text-slate-500 flex items-center gap-1">
                     未實現損益
                     {newHoldingsCount > 0 && (
-                      <span className="text-[10px] text-slate-600 italic">（不含今日新增 {newHoldingsCount} 筆）</span>
+                      <span className="text-xs text-slate-600 italic">（不含今日新增 {newHoldingsCount} 筆）</span>
                     )}
                   </span>
                   <span className={totalUnrealizedPnl >= 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
@@ -408,7 +408,7 @@ const App: React.FC = () => {
             );
           })()}
 
-          <div className="lg:col-span-2 bg-dark-card border border-dark-border rounded-2xl p-5 flex flex-col">
+          <div className="app-panel lg:col-span-2 bg-dark-card border border-dark-border rounded-2xl p-5 flex flex-col">
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-slate-300 text-sm font-medium flex items-center gap-2"><Activity size={14} className="text-brand-secondary" /> 近期損益趨勢</h3>
               <div className="flex items-center gap-2">
@@ -503,7 +503,7 @@ const App: React.FC = () => {
           {selectedHolding ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2"><CandlestickChart data={chartData} ticker={selectedHolding.ticker} /></div>
-              <div className="bg-dark-card border border-dark-border rounded-xl p-5 space-y-3">
+              <div className="app-panel bg-dark-card border border-dark-border rounded-xl p-5 space-y-3">
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">代號</span><span className="text-white font-mono">{selectedHolding.ticker}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">名稱</span><span className="text-white">{selectedHolding.name}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">數量</span><span className="text-white">{formatNumber(selectedHolding.amount, selectedHolding.amount < 1 ? 4 : 0)}</span></div>
@@ -511,7 +511,7 @@ const App: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="w-full h-[320px] bg-dark-card rounded-xl border border-dashed flex flex-col items-center justify-center text-slate-500">
+            <div className="app-panel w-full h-[320px] bg-dark-card rounded-xl border border-dashed flex flex-col items-center justify-center text-slate-500">
               <Activity size={48} className="mb-4 opacity-50" />
               <p>點選持倉以查看走勢圖</p>
             </div>

@@ -124,7 +124,7 @@ const PortfolioColumn: React.FC<Props> = ({
     const percentFilled = targetValue === 0 ? 0 : Math.min(100, (totalValue / targetValue) * 100);
 
     return (
-        <div className="bg-dark-card rounded-xl border border-dark-border flex flex-col h-[650px] shadow-lg relative overflow-hidden group">
+        <div className="app-panel bg-dark-card rounded-xl border border-dark-border flex flex-col h-[650px] shadow-lg relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: color }}></div>
 
             <div className="p-5 pb-2">
@@ -172,7 +172,7 @@ const PortfolioColumn: React.FC<Props> = ({
                 <div className="mx-4 mb-4 p-4 bg-[#151a21] border border-brand-primary/30 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2">
                     <div className="grid grid-cols-3 gap-2">
                         <div>
-                            <label className="text-[10px] text-slate-500 block mb-1">代號</label>
+                            <label className="text-xs text-slate-500 block mb-1">代號</label>
                             <input 
                                 className="w-full bg-[#0b0e11] border border-slate-700 rounded p-1.5 text-xs text-white uppercase"
                                 placeholder={type === 'SHORT' ? '例: 2330' : type === 'MID' ? '例: NVDA' : '例: BTC-USD'} 
@@ -181,7 +181,7 @@ const PortfolioColumn: React.FC<Props> = ({
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] text-slate-500 block mb-1">成本均價</label>
+                            <label className="text-xs text-slate-500 block mb-1">成本均價</label>
                             <input 
                                 type="number"
                                 className="w-full bg-[#0b0e11] border border-slate-700 rounded p-1.5 text-xs text-white"
@@ -191,7 +191,7 @@ const PortfolioColumn: React.FC<Props> = ({
                             />
                         </div>
                         <div>
-                            <label className="text-[10px] text-slate-500 block mb-1">數量</label>
+                            <label className="text-xs text-slate-500 block mb-1">數量</label>
                             <input 
                                 type="number"
                                 className="w-full bg-[#0b0e11] border border-slate-700 rounded p-1.5 text-xs text-white"
@@ -217,7 +217,7 @@ const PortfolioColumn: React.FC<Props> = ({
                 className="h-32 w-full relative shrink-0 cursor-pointer group/chart"
                 onClick={() => setIsTargetMode(!isTargetMode)}
             >
-                <div className="absolute top-0 right-4 text-[10px] text-slate-500 opacity-0 group-hover/chart:opacity-100 xl:opacity-100 transition-opacity z-10 flex items-center gap-1 bg-[#1e232e] px-2 py-1 rounded border border-slate-700">
+                <div className="absolute top-0 right-4 text-xs text-slate-500 opacity-0 group-hover/chart:opacity-100 xl:opacity-100 transition-opacity z-10 flex items-center gap-1 bg-[#1e232e] px-2 py-1 rounded border border-slate-700">
                     <RefreshCcw size={10} /> 模式: {isTargetMode ? '倉位資金' : '單純持倉'}
                 </div>
                 <ResponsiveContainer width="100%" height="100%">
@@ -256,7 +256,7 @@ const PortfolioColumn: React.FC<Props> = ({
                             {/* Header */}
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2 truncate">
-                                    <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{h.ticker}</span>
+                                    <span className="text-xs text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono shrink-0">{h.ticker}</span>
                                     <span className="font-bold text-white text-sm truncate">{h.name}</span>
                                 </div>
                                 <div className="flex items-center gap-1">
@@ -281,7 +281,7 @@ const PortfolioColumn: React.FC<Props> = ({
                             </div>
 
                             {/* Info Grid (需求 2: 顯示 6 項欄位) */}
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-500">數量</span>
                                     {isEditing ? (
@@ -298,7 +298,7 @@ const PortfolioColumn: React.FC<Props> = ({
                                     <span className="text-slate-500">平均成本 ({currency})</span>
                                     {isEditing ? (
                                         <div className="flex items-center gap-1">
-                                            <span className="text-[10px] text-slate-600">{currency}</span>
+                                            <span className="text-xs text-slate-600">{currency}</span>
                                             <input className="w-16 bg-[#0b0e11] border border-brand-primary rounded px-1 text-white text-right font-mono tabular-nums" value={editForm.avgPrice} onChange={e => setEditForm({...editForm, avgPrice: e.target.value})} />
                                         </div>
                                     ) : (
@@ -320,7 +320,7 @@ const PortfolioColumn: React.FC<Props> = ({
                                 <span className="opacity-70">未實現損益</span>
                                 <div className="flex items-center gap-2">
                                     <span>{pnl >= 0 ? '+' : ''}{formatCurrency(pnl, currency)}</span>
-                                    <span className="text-[10px] bg-white/5 px-1 rounded">{roi.toFixed(2)}%</span>
+                                    <span className="text-xs bg-white/5 px-1 rounded">{roi.toFixed(2)}%</span>
                                 </div>
                             </div>
                             
