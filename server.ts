@@ -82,7 +82,8 @@ const sessionStore = isProd
   });
 
 // Zeabur / ?嗡??脩垢撟喳?賣???隞??嚗??????甇?Ⅱ?? HTTPS ??secure cookie
-if (isProd) app.set('trust proxy', 1);
+// Explicitly set trust proxy in all environments for consistent behavior
+app.set('trust proxy', isProd ? 1 : false);
 
 // ??? Session & Auth Middleware ????????????????????????????????????????????????
 
@@ -90,7 +91,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      "script-src": ["'self'", 'https://cdn.tailwindcss.com'],
+      "script-src": ["'self'"],
+      // 'unsafe-inline' required: runtime Tailwind (public/tailwindcss.js) injects <style> tags dynamically.
+      // To remove it, migrate to build-time Tailwind CSS processing.
       "style-src": ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       "font-src": ["'self'", 'https://fonts.gstatic.com', 'data:'],
       "img-src": ["'self'", 'https:', 'data:'],
@@ -132,6 +135,8 @@ app.use(passport.initialize());
 app.use(passport.session());
 app.use(cors({
   origin(origin, callback) {
+    // No Origin header: same-origin browser requests or non-browser clients.
+    // Server-side CSRF protection is handled by requireSameOrigin middleware.
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('CORS not allowed'));
@@ -217,17 +222,17 @@ const ALLOWED_MARKETS = new Set(['TW', 'US', 'CRYPTO']);
 const ALLOWED_PORTFOLIO_TYPES = new Set(['SHORT', 'MID', 'LONG']);
 const TICKER_PATTERN = /^[A-Za-z0-9.-]{1,16}$/;
 
-function parsePositiveNumber(value: unknown) {
+export function parsePositiveNumber(value: unknown) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
   return value;
 }
 
-function parseNonNegativeNumber(value: unknown) {
+export function parseNonNegativeNumber(value: unknown) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
   return value;
 }
 
-function parseTicker(value: unknown) {
+export function parseTicker(value: unknown) {
   if (typeof value !== 'string') return null;
   const ticker = value.trim().toUpperCase();
   if (!TICKER_PATTERN.test(ticker)) return null;
@@ -509,7 +514,6 @@ app.patch('/api/me/targets', requireAuth, async (req, res) => {
 async function fetchTaiwanOfficialPrices() {
   console.log('Fetching official TWSE/TPEx prices...');
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
   const BATCH = 200;
 
   async function runBatched(ops: any[]) {
@@ -523,6 +527,12 @@ async function fetchTaiwanOfficialPrices() {
     const twseRes = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL');
     const twseData = await twseRes.json();
     if (Array.isArray(twseData)) {
+      // 用 TWSE 回傳的實際資料日期（民國轉西元），避免盤中取到昨日資料卻標記為今天
+      const firstDate = twseData[0]?.Date;
+      const dataDate = firstDate
+        ? new Date(`${parseInt(firstDate.substring(0, 3)) + 1911}-${firstDate.substring(3, 5)}-${firstDate.substring(5, 7)}T00:00:00`)
+        : now;
+
       const ops: any[] = [];
       for (const item of twseData) {
         const ticker = item.Code;
@@ -537,14 +547,12 @@ async function fetchTaiwanOfficialPrices() {
 
         ops.push(prisma.stockCache.upsert({
           where: { ticker },
-          update: { name: item.Name, currentPrice: close, change24h, lastUpdated: now },
-          create: { ticker, name: item.Name, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
+          update: { name: item.Name, currentPrice: close, change24h, lastUpdated: dataDate },
+          create: { ticker, name: item.Name, market: 'TW', currentPrice: close, change24h, lastUpdated: dataDate }
         }));
 
         if (close > 0) {
-          const dateStr = item.Date
-            ? `${parseInt(item.Date.substring(0, 3)) + 1911}-${item.Date.substring(3, 5)}-${item.Date.substring(5, 7)}`
-            : todayStr;
+          const dateStr = dataDate.toISOString().split('T')[0];
           ops.push(prisma.stockDailyPrice.upsert({
             where: { ticker_date: { ticker, date: dateStr } },
             update: { open, high, low, close, volume },
@@ -553,13 +561,19 @@ async function fetchTaiwanOfficialPrices() {
         }
       }
       await runBatched(ops);
-      console.log(`TWSE: ${twseData.length} stocks processed`);
+      console.log(`TWSE: ${twseData.length} stocks processed (data date: ${dataDate.toISOString().split('T')[0]})`);
     }
 
     // 2. 上櫃 (TPEx)
     const tpexRes = await fetch('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes');
     const tpexData = await tpexRes.json();
     if (Array.isArray(tpexData)) {
+      const firstTpex = tpexData[0]?.Date;
+      const tpexDate = firstTpex
+        ? new Date(`${parseInt(firstTpex.substring(0, 3)) + 1911}-${firstTpex.substring(3, 5)}-${firstTpex.substring(5, 7)}T00:00:00`)
+        : now;
+      const tpexDateStr = tpexDate.toISOString().split('T')[0];
+
       const ops: any[] = [];
       for (const item of tpexData) {
         const ticker = item.SecuritiesCompanyCode;
@@ -574,20 +588,20 @@ async function fetchTaiwanOfficialPrices() {
 
         ops.push(prisma.stockCache.upsert({
           where: { ticker },
-          update: { name: item.CompanyName, currentPrice: close, change24h, lastUpdated: now },
-          create: { ticker, name: item.CompanyName, market: 'TW', currentPrice: close, change24h, lastUpdated: now }
+          update: { name: item.CompanyName, currentPrice: close, change24h, lastUpdated: tpexDate },
+          create: { ticker, name: item.CompanyName, market: 'TW', currentPrice: close, change24h, lastUpdated: tpexDate }
         }));
 
         if (close > 0) {
           ops.push(prisma.stockDailyPrice.upsert({
-            where: { ticker_date: { ticker, date: todayStr } },
+            where: { ticker_date: { ticker, date: tpexDateStr } },
             update: { open, high, low, close, volume },
-            create: { ticker, date: todayStr, open, high, low, close, volume }
+            create: { ticker, date: tpexDateStr, open, high, low, close, volume }
           }));
         }
       }
       await runBatched(ops);
-      console.log(`TPEx: ${tpexData.length} stocks processed`);
+      console.log(`TPEx: ${tpexData.length} stocks processed (data date: ${tpexDateStr})`);
     }
     console.log('Taiwan official prices updated successfully.');
   } catch (err) {
@@ -608,7 +622,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
   if (market === 'CRYPTO') {
     try {
       const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
-      const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+      const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}`);
       const data: any = await response.json();
       
       if (data && data.lastPrice) {
@@ -659,7 +673,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       }
 
       // ?澆 Finnhub Quote API
-      const quoteRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
+      const quoteRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(ticker)}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
       if (!quoteRes.ok) throw new Error(`Quote error! status: ${quoteRes.status}`);
       const quoteData: any = await quoteRes.json();
 
@@ -667,7 +681,7 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
       // ?芣??冽?蝣箄?瘙????Profile (蝭??API Call)
       if (fetchName && quoteData.c !== 0) {
         try {
-          const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
+          const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(ticker)}`, { headers: { 'X-Finnhub-Token': finnhubKey } });
           if (profileRes.ok) {
             const profileData: any = await profileRes.json();
             name = profileData.name;
@@ -703,8 +717,8 @@ async function fetchPriceDirectly(ticker: string, market: string, fetchName: boo
 // ??? Price Cache API (?芸?敺?頝舐) ??????????????????????????????????????????????
 
 app.get('/api/prices', requireAuth, async (req, res) => {
-  const tickers = req.query.tickers as string;
-  if (!tickers) return res.status(400).json({ error: 'Missing tickers' });
+  const tickers = req.query.tickers;
+  if (!tickers || typeof tickers !== 'string') return res.status(400).json({ error: 'Missing tickers' });
 
   const tickerList = tickers
     .split(',')
@@ -787,15 +801,27 @@ app.post('/api/prices/refresh-tw', requireAuth, async (req, res) => {
     const userId = req.user.id;
     await fetchTaiwanOfficialPrices();
     const holdings = await prisma.holding.findMany({ where: { userId, market: 'TW' } });
-    for (const h of holdings) {
+
+    // TWSE/TPEx 資料可能是昨日收盤，對用戶持倉再用 Yahoo Finance 抓即時報價
+    const CONCURRENCY = 5;
+    const refreshOne = async (h: typeof holdings[number]) => {
       const cleanTicker = h.ticker.replace('.TW', '');
-      const cache = await prisma.stockCache.findUnique({ where: { ticker: cleanTicker } });
-      if (cache?.name && (!h.name || h.name === h.ticker)) {
-        await prisma.holding.update({
-          where: { id: h.id },
-          data: { name: cache.name },
-        });
-      }
+      try {
+        const newData = await fetchPriceDirectly(h.ticker, 'TW', true);
+        if (newData) {
+          await prisma.stockCache.upsert({
+            where: { ticker: cleanTicker },
+            update: { name: newData.name || undefined, currentPrice: newData.currentPrice, change24h: newData.change24h, lastUpdated: new Date() },
+            create: { ticker: cleanTicker, name: newData.name || h.ticker, market: 'TW', currentPrice: newData.currentPrice, change24h: newData.change24h }
+          });
+          if (newData.name && (!h.name || h.name === h.ticker)) {
+            await prisma.holding.update({ where: { id: h.id }, data: { name: newData.name } });
+          }
+        }
+      } catch { /* TWSE batch data is fallback */ }
+    };
+    for (let i = 0; i < holdings.length; i += CONCURRENCY) {
+      await Promise.allSettled(holdings.slice(i, i + CONCURRENCY).map(refreshOne));
     }
     res.json({ success: true, message: 'TW prices and names refreshed' });
   } catch (err) {
@@ -917,9 +943,9 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
             const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
             const from = startForFetch.getTime();
             const to = today.getTime();
-            const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
+            const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
             const data: any = await response.json();
-            
+
             if (Array.isArray(data) && data.length > 0) {
               const prices: Record<string, number> = {};
               for (const k of data) {
@@ -946,9 +972,9 @@ app.get('/api/pnl-history', requireAuth, async (req, res) => {
           try {
             const from = Math.floor(startForFetch.getTime() / 1000);
             const to = Math.floor(today.getTime() / 1000);
-            const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
+            const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
             const data: any = await response.json();
-            
+
             if (data && data.s === 'ok' && data.c) {
               const prices: Record<string, number> = {};
               for (let i = 0; i < data.t.length; i++) {
@@ -1119,7 +1145,7 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
         const symbol = ticker.replace('-USD', '').replace('-', '').toUpperCase() + 'USDT';
         const from = oneYearAgo.getTime();
         const to = today.getTime();
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&startTime=${from}&endTime=${to}&limit=1000`);
         const data: any = await response.json();
         if (Array.isArray(data) && data.length > 0) {
           apiCandles = data.map((k: any) => ({
@@ -1141,7 +1167,7 @@ app.get('/api/chart/:ticker', requireAuth, async (req, res) => {
       try {
         const from = Math.floor(oneYearAgo.getTime() / 1000);
         const to = Math.floor(today.getTime() / 1000);
-        const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
+        const response = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(ticker)}&resolution=D&from=${from}&to=${to}`, { headers: { 'X-Finnhub-Token': process.env.FINNHUB_API_KEY! } });
         const data: any = await response.json();
         if (data && data.s === 'ok' && data.t) {
           apiCandles = data.t.map((ts: number, i: number) => ({
@@ -1230,8 +1256,28 @@ async function startServer() {
   });
 }
 
-startServer();
+if (process.env.NODE_ENV === 'test') {
+  app.post('/test-login', (req, res) => {
+    const user = {
+      id: 'test-user-id',
+      email: 'test@test.com',
+      name: 'Test User',
+      googleId: 'google-123',
+      avatarUrl: null,
+      principal: 1200000,
+      shortTarget: 500000,
+      midTarget: 420000,
+      longTarget: 360000,
+    };
+    req.login(user, (err: any) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ ok: true });
+    });
+  });
+}
 
+export { app };
 
-
-
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
