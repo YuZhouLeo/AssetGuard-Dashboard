@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Holding, PortfolioType, CandleData } from './types';
 import PortfolioColumn from './components/PortfolioColumn';
-import CandlestickChart from './components/CandlestickChart';
+import CandlestickChart, { OhlcInfo } from './components/CandlestickChart';
 import { formatCurrency, formatNumber } from './utils/math';
 import { Activity, Check, Edit3, LayoutDashboard, LogOut, User as UserIcon } from 'lucide-react';
 import {
   Bar,
   BarChart,
   Cell,
+  LabelList,
   Legend,
   Pie,
   PieChart,
@@ -41,6 +42,64 @@ const formatDateLabel = (dateStr: string) => {
   return `${d.getMonth() + 1}/${d.getDate()}(${week[d.getDay()]})`;
 };
 
+const formatCompact = (v: number) => {
+  const abs = Math.abs(v);
+  const sign = v >= 0 ? '+' : '-';
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e4) return `${sign}${(abs / 1e3).toFixed(1)}K`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}${abs.toFixed(0)}`;
+};
+
+const PnlBarLabel = ({ x, y, width, height, value }: any) => {
+  if (value == null || value === 0) return null;
+  const isPos = value >= 0;
+  return (
+    <text
+      x={x + width / 2}
+      y={isPos ? y - 8 : y + height + 14}
+      textAnchor="middle"
+      fontSize={11}
+      fontWeight={600}
+      fontFamily="Manrope, sans-serif"
+      fill={isPos ? '#fca5a5' : '#86efac'}
+    >
+      {formatCompact(value)}
+    </text>
+  );
+};
+
+const PnlTooltip = ({ active, payload, label, tooltipLabel }: any) => {
+  if (!active || !payload?.length) return null;
+  const value = payload[0].value as number;
+  const isPos = value >= 0;
+  return (
+    <div style={{
+      background: 'rgba(12, 26, 48, 0.92)',
+      backdropFilter: 'saturate(180%) blur(14px)',
+      border: `1px solid ${isPos ? 'rgba(248, 113, 113, 0.35)' : 'rgba(52, 211, 153, 0.35)'}`,
+      borderRadius: 10,
+      padding: '10px 16px',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
+      minWidth: 140,
+    }}>
+      <div style={{ fontSize: 11, color: '#8ba4c4', marginBottom: 6, letterSpacing: 0.3 }}>{label}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <span style={{ fontSize: 11, color: '#64748b' }}>{tooltipLabel}</span>
+        <span style={{
+          fontSize: 16,
+          fontWeight: 700,
+          fontFamily: '"Manrope", monospace',
+          color: isPos ? '#fca5a5' : '#6ee7b7',
+          letterSpacing: -0.5,
+        }}>
+          {isPos ? '+' : ''}{formatCurrency(value)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -62,6 +121,7 @@ const App: React.FC = () => {
 
   const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
   const [chartData, setChartData] = useState<CandleData[]>([]);
+  const [crosshairOhlc, setCrosshairOhlc] = useState<OhlcInfo | null>(null);
   const chartSectionRef = useRef<HTMLDivElement>(null);
 
   const [exchangeRate, setExchangeRate] = useState(32.5);
@@ -409,25 +469,51 @@ const App: React.FC = () => {
           })()}
 
           <div className="app-panel lg:col-span-2 bg-dark-card border border-dark-border rounded-2xl p-5 flex flex-col">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-slate-300 text-sm font-medium flex items-center gap-2"><Activity size={14} className="text-brand-secondary" /> 近期損益趨勢</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-slate-200 text-sm font-semibold flex items-center gap-2 tracking-wide">
+                <Activity size={14} className="text-brand-secondary" /> 近期損益趨勢
+              </h3>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">{pnlTooltipLabel}</span>
+                <span className="text-xs text-slate-500 bg-slate-800/40 px-2 py-0.5 rounded-full">{pnlTooltipLabel}</span>
                 {pnlLoading && <div className="w-3 h-3 border border-brand-secondary border-t-transparent rounded-full animate-spin" />}
               </div>
             </div>
-            <div className="flex-1 w-full" style={{ minHeight: 140 }}>
+            <div className="flex-1 w-full" style={{ minHeight: 180 }}>
               {pnlChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={pnlChartData} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
-                    <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                    <YAxis hide domain={[(dataMin: number) => Math.min(0, dataMin * 1.2), (dataMax: number) => Math.max(0, dataMax * 1.2)]} />
-                    <ReferenceLine y={0} stroke="#2d3748" strokeDasharray="3 3" />
-                    <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), pnlTooltipLabel]} />
-                    <Bar dataKey="value" radius={[3, 3, 3, 3]}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={pnlChartData} margin={{ top: 28, right: 12, left: 12, bottom: 4 }} barCategoryGap="22%">
+                    <defs>
+                      <linearGradient id="pnlGain" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fca5a5" stopOpacity={0.95} />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity={0.7} />
+                      </linearGradient>
+                      <linearGradient id="pnlLoss" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#34d399" stopOpacity={0.7} />
+                        <stop offset="100%" stopColor="#6ee7b7" stopOpacity={0.95} />
+                      </linearGradient>
+                      <filter id="barGlow">
+                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                      </filter>
+                    </defs>
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fontSize: 11, fill: '#8ba4c4', fontFamily: 'Manrope, sans-serif' }}
+                      tickLine={false}
+                      axisLine={false}
+                      dy={4}
+                    />
+                    <YAxis hide domain={[(dataMin: number) => Math.min(0, dataMin * 1.35), (dataMax: number) => Math.max(0, dataMax * 1.35)]} />
+                    <ReferenceLine y={0} stroke="#3b5f87" strokeWidth={1} />
+                    <RechartsTooltip
+                      content={<PnlTooltip tooltipLabel={pnlTooltipLabel} />}
+                      cursor={{ fill: 'rgba(139, 164, 196, 0.06)', radius: 4 }}
+                    />
+                    <Bar dataKey="value" radius={[5, 5, 5, 5]} maxBarSize={48} filter="url(#barGlow)">
                       {pnlChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.value >= 0 ? '#ef4444' : '#10b981'} />
+                        <Cell key={`cell-${index}`} fill={entry.value >= 0 ? 'url(#pnlGain)' : 'url(#pnlLoss)'} />
                       ))}
+                      <LabelList content={PnlBarLabel} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -502,12 +588,26 @@ const App: React.FC = () => {
           <h2 className="text-2xl font-bold text-white mb-4">持倉走勢圖</h2>
           {selectedHolding ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2"><CandlestickChart data={chartData} ticker={selectedHolding.ticker} /></div>
+              <div className="lg:col-span-2"><CandlestickChart key={selectedHolding.ticker} data={chartData} ticker={selectedHolding.ticker} onCrosshairMove={setCrosshairOhlc} /></div>
               <div className="app-panel bg-dark-card border border-dark-border rounded-xl p-5 space-y-3">
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">代號</span><span className="text-white font-mono">{selectedHolding.ticker}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">名稱</span><span className="text-white">{selectedHolding.name}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">數量</span><span className="text-white">{formatNumber(selectedHolding.amount, selectedHolding.amount < 1 ? 4 : 0)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400 text-sm">現價</span><span className="text-white font-mono">{selectedHolding.market === 'TW' ? formatCurrency(selectedHolding.currentPrice) : formatCurrency(selectedHolding.currentPrice, 'USD')}</span></div>
+                {crosshairOhlc && (
+                  <>
+                    <hr className="border-dark-border" />
+                    <div className="text-xs text-slate-400 font-medium">{crosshairOhlc.date}</div>
+                    <div className="flex justify-between"><span className="text-slate-400 text-sm">開盤</span><span className="text-white font-mono">{crosshairOhlc.open.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400 text-sm">最高</span><span className="text-white font-mono">{crosshairOhlc.high.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400 text-sm">最低</span><span className="text-white font-mono">{crosshairOhlc.low.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400 text-sm">收盤</span><span className={`font-mono ${crosshairOhlc.close >= crosshairOhlc.open ? 'text-emerald-400' : 'text-red-400'}`}>{crosshairOhlc.close.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400 text-sm">漲跌</span><span className={`font-mono ${crosshairOhlc.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{crosshairOhlc.change >= 0 ? '+' : ''}{crosshairOhlc.change.toFixed(2)} ({crosshairOhlc.change >= 0 ? '+' : ''}{crosshairOhlc.changePercent.toFixed(2)}%)</span></div>
+                    {crosshairOhlc.volume != null && crosshairOhlc.volume > 0 && (
+                      <div className="flex justify-between"><span className="text-slate-400 text-sm">成交量</span><span className="text-white font-mono">{crosshairOhlc.volume >= 1e6 ? (crosshairOhlc.volume / 1e6).toFixed(1) + 'M' : crosshairOhlc.volume >= 1e3 ? (crosshairOhlc.volume / 1e3).toFixed(0) + 'K' : crosshairOhlc.volume.toFixed(0)}</span></div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ) : (
